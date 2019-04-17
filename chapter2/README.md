@@ -235,6 +235,7 @@ end
 Ruby の場合、`Strcut`にブロックを渡してメソッドを定義する。
 
 ```ruby
+# 2_3_6.rb
 class Gear
   attr_reader :chainring, :cog, :wheel
   def initialize(chainring, cog, rim, tire)
@@ -263,3 +264,60 @@ end
 
 クラスが持っている責任は単一であるよう、徹底する。  
 本質でない責任は別のクラスに分離し、それがまだ出来なければ隔離する。
+
+## 2.4 ついに、実際の Wheel の完成
+
+アプリケーションのユーザーから、「車輪の円周も計算できるようにしたい」という要望が来た。  
+この要望によって、`Wheel`を`Gear`から独立させて使いたいというニーズが生まれた。円周の計算（直径×円周率）は、ギアとは独立して存在しているから。  
+この要望やニーズこそが、前節で触れた「判断をするための情報」。これにより、`Wheel`を`Gear`から独立させるべきという判断が可能になった。
+
+前節で既に`Wheel`の振る舞いを隔離しておいたおかげで、`Gear`からの独立は簡単に出来る。  
+`Wheel`を切り出してクラスに変え、円周を計算するための`circumference`メソッドを追加すればよい。
+
+```ruby
+# 2_4_1.rb
+class Gear
+  attr_reader :chainring, :cog, :wheel
+  def initialize(chainring, cog, wheel = nil)
+    @chainring = chainring
+    @cog = cog
+    @wheel = wheel
+  end
+
+  def ratio
+    chainring / cog.to_f
+  end
+
+  def gear_inches
+    ratio * wheel.diameter
+  end
+end
+
+class Wheel
+  attr_reader :rim, :tire
+  def initialize(rim, tire)
+    @rim = rim
+    @tire = tire
+  end
+
+  def diameter
+    rim + (tire * 2)
+  end
+
+  def circumference
+    diameter * Math::PI
+  end
+end
+
+wheel = Wheel.new(26, 1.5)
+p wheel.circumference # 91.106186954104
+
+p Gear.new(52, 11, wheel).gear_inches # 264.72727272727275
+
+p Gear.new(52, 11).ratio # 4.7272727272727275
+```
+
+## 2.5 まとめ
+
+一つのことに専念するクラスは、その一つのことを、アプリケーションの他の部位から隔離する。  
+この隔離によって、悪影響を及ぼすことのない変更と重複のない再利用が可能になり、変更可能でメンテナンス性の高いソフトウェアになる。
