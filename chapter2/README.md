@@ -47,3 +47,219 @@
 将来に対する不確実性が高い状態では、時間を掛けて設計するよりも、そのままにしておき、必要性が高まってから設計したほうがいいかもしれない。  
 しかし、再利用しづらく、模範的でないコードをそのままにしておくデメリットも、確かに存在する。  
 どちらかよいと、一方的に決めることは出来ない。**「いますぐ改善」と「あとで改善」の間の緊張状態は常に存在し、そのなかで折り合いをつけていくしかない。**
+
+## 2.3 変更を歓迎するコードを書く
+
+未来においてどんな変更が行われるか分からなくても、変更を受け入れやすいコードを構成することは出来る。  
+そのためのテクニックを紹介していく。これらのテクニックは、変更を歓迎するコードを書くために役立てられる。
+
+### データではなく振る舞いに依存する
+
+どこからでも参照されるデータではなく、一箇所で定義される振る舞いに依存する。  
+そうすることで、変更に強いコードになる。  
+変更に伴う影響が次々に波及していくのを、予防することが出来る。
+
+具体的には、インスタンス変数や複雑なデータ構造を、メソッドで隠蔽する。
+
+まずはインスタンス変数。  
+常にアクセスメソッドで包み、直接参照しないようにする。変数を持っているクラスからも隠蔽し、常にメソッドから値を取得するようにする。
+
+以下の例では、`@cog`を直接参照している。
+
+```ruby
+# 2_3_1.rb
+class Gear
+  def initialize(chainring, cog)
+    @chainring = chainring
+    @cog = cog
+  end
+
+  def ratio
+    @chainring / @cog.to_f # <- Bad
+  end
+end
+```
+
+このように書いてしまうと、`@cog`の定義に変更があったときの対応が困難になる。  
+上記の例では`@cog`を参照しているのは一箇所だけだが、複数の箇所から参照されていると、その全ての箇所を変更するはめになる。
+
+以下は、アクセサメソッドを使った例。`cog`の定義が一箇所で済んでいるので、変更があった場合もここだけ書き換えればよい。
+
+```ruby
+# 2_3_2.rb
+class Gear
+  def initialize(chainring, cog)
+    @chainring = chainring
+    @cog = cog
+  end
+
+  def chainring
+    @chainring
+  end
+
+  def cog
+    @cog
+  end
+
+  def ratio
+    chainring / cog.to_f # <- Good
+  end
+end
+```
+
+今回は例示のために明示的に`chainring`と`cog`を定義したが、`attr_reader :chainring, :cog`と書くだけでアクセサメソッドを定義することが出来る。
+
+次に、複雑なデータ構造の隠蔽。
+
+以下の`ObscuringReferences`クラスは、初期化のときに受け取ったデータを`@data`に保管し、それを使って`diameters`メソッドで直径を計算している。
+
+```ruby
+# 2_3_3.rb
+class ObscuringReferences
+  attr_reader :data
+  def initialize(data)
+    @data = data
+  end
+
+  def diameters
+    data.collect {|cell|
+      # [0]はリム [1]はタイヤ
+      # 車輪の直径 = リム + (タイヤの厚み * 2)
+      cell[0] + (cell[1] *2)
+    }
+  end
+end
+
+value = [[622, 20], [622, 23]]
+p ObscuringReferences.new(value).diameters # [662, 668]
+```
+
+`@data`は複雑な構造で、リムとタイヤのサイズが入った2次元配列になっている。  
+この複雑なデータ構造を隠蔽できていないことが、`ObscuringReferences`の問題点。
+
+`diameters`がデータ構造について知りすぎているし、それに依存してしまっている。  
+構造が変わった場合はコードの変更も発生するが、構造に依存しているコードが多ければ多いほど、変更の影響も大きくなる。  
+作業が大変になるし、バグが混入するリスクも高まる。
+
+複雑な構造への直接の参照は混乱を招く。  
+リムが`[0]`に、タイヤが`[1]`に入っているという知識はただ一箇所で把握されるべきであり、それは明らかに`diameters`の責務ではない。
+
+複雑さは隔離し、隠蔽するべき。  
+そのためのテクニックとして、 Ruby では`Struct`を使える。
+
+```ruby
+# 2_3_4.rb
+class RevealingReferences
+  attr_reader :wheels
+  def initialize(data)
+    @wheels = wheelify(data)
+  end
+
+  def diameters
+    wheels.collect {|wheel|
+      # 車輪の直径 = リム + (タイヤの厚み * 2)
+      wheel.rim + (wheel.tire * 2)
+    }
+  end
+
+  Wheel = Struct.new(:rim, :tire)
+  def wheelify(data)
+    data.collect {|cell|
+      # [0]はリム [1]はタイヤ
+      Wheel.new(cell[0], cell[1])
+    }
+  end
+end
+```
+
+新しい`diameters`はデータ構造について何も知らず、車輪の直径の計算方法という、本来知っているべきことだけを知っている。  
+データ構造についての知識は、`wheelify`の一箇所でのみ把握されている。  
+このように書けば、データ構造が変わっても変更はこの一箇所のみで済む。  
+複雑さは隔離し隠蔽することで、変更に強いコードになる。
+
+### あらゆる箇所を単一責任にする
+
+変更や再利用を簡単にするために、クラスだけでなくメソッドも単一責任にする。
+
+先程の`RevealingReferences`は、複雑なデータ構造を隠蔽することには成功したが、`diameters`が単一責任になっていないという問題を抱えている。  
+直径の計算と繰り返し処理の2つの責任を持っている。  
+これを、`diameter`という直径の計算のみを行うメソッドも作る形で、リファクタリングする。
+
+```ruby
+# 2_3_5.rb
+class RevealingReferences
+  attr_reader :wheels
+  def initialize(data)
+    @wheels = wheelify(data)
+  end
+
+  def diameters
+    wheels.collect {|wheel|
+      diameter(wheel)
+    }
+  end
+
+  def diameter(wheel)
+      # 車輪の直径 = リム + (タイヤの厚み * 2)
+      wheel.rim + (wheel.tire * 2)
+  end
+
+  Wheel = Struct.new(:rim, :tire)
+  def wheelify(data)
+    data.collect {|cell|
+      # [0]はリム [1]はタイヤ
+      Wheel.new(cell[0], cell[1])
+    }
+  end
+end
+```
+
+この節で紹介してきたリファクタリングを積み重ねていくと、次のような恩恵を受けることが出来る。
+
+- 隠蔽されていた性質を明らかにする
+  - メソッドの単一責任を徹底していくことで、クラス全体の役割が明確になる。そのクラスがどんな性質を持っているのか見えてくる。
+- コメントをする必要がなくなる
+  - 小さい単位でメソッドを作り、そのメソッドに適切な名前をつけていけば、その名前がコメントの役割を果たす。
+- 再利用を促進する
+  - 小さなメソッドは再利用しやすい。そして小さなメソッドで構成されたアプリケーションでは、後から変更を加える他のプログラマも、既存のパターンに従ってメソッドを小さく作るようになる。
+- 他のクラスへの移動が簡単
+  - 小さなメソッドは簡単に動かせるため、変更が楽。そのため、設計の見直しや改善に対する敷居が下がる。
+
+設計においては「保留」も選択肢の一つ。  
+状況が不透明なのに安易に決定してはいけない。  
+せっかく変更可能なコードを書いているのだから、その恩恵を活かして、決定はあとに残しておく。
+
+`Gear`クラスを例にすると、`wheel`に関する振る舞いを`Wheel`クラスとして切り出すべきかが問題となる。  
+その判断をするための情報があるならよいが、現時点では判断のための情報が足りない、というケースもあり得る。  
+そういうときは、`wheel`に関する振る舞いを、`Gear`クラスに入れたままにしつつ隔離するという手法を取れる。  
+Ruby の場合、`Strcut`にブロックを渡してメソッドを定義する。
+
+```ruby
+class Gear
+  attr_reader :chainring, :cog, :wheel
+  def initialize(chainring, cog, rim, tire)
+    @chainring = chainring
+    @cog = cog
+    @wheel = Wheel.new(rim, tire)
+  end
+
+  def ratio
+    chainring / cog.to_f
+  end
+
+  def gear_inches
+    ratio * wheel.diameter
+  end
+
+  Wheel = Struct.new(:rim, :tire) do
+    def diameter
+      rim + (tire * 2)
+    end
+  end
+end
+```
+
+`Gear`を綺麗にしつつ、`Wheel`を別のクラスに切り出すべきかの決定を遅らせている。
+
+クラスが持っている責任は単一であるよう、徹底する。  
+本質でない責任は別のクラスに分離し、それがまだ出来なければ隔離する。
