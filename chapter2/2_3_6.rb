@@ -21,4 +21,4 @@ class Gear
   end
 end
 
-p Gear.new(52, 11, 26, 15).gear_inches # 264.72727272727275
+p Gear.new(52, 11, 26, 1.5).gear_inches # 137.0909090909091
