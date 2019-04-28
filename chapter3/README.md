@@ -86,3 +86,125 @@ p Gear.new(52, 11, 26, 1.5).gear_inches # 137.0909090909091
 
 依存関係を回避することは難しくない。  
 そのための最初のステップとして、依存関係に対する理解を深める。
+
+## 3.2 疎結合なコードを書く
+
+上述した`3_1_1.rb`の大きな問題点は、`gear_inches`メソッド内で`Wheel`をハードコーディングしてしまっていること。  
+このせいで、不要な依存が発生してしまっている。  
+`Gear`と`Wheel`が必要以上に結びついていることで、`Gear`の再利用性や変更容易性が下がってしまっている。
+
+`Gear`にとって重要なのは、`Wheel`というクラスではなく`diameter`というメッセージ。`diameter`というメッセージに応答してくれるのであれば、どんなオブジェクトでも構わない。  
+だから本来、`Wheel`というクラス名も、それを初期化するために`rim`と`tire`が必要だということも、`Gear`は知る必要がない。
+
+以下のように変更することで、これを改善できる。
+
+```diff
+@@ -1,14 +1,13 @@
+ class Gear
+-  attr_reader :chainring, :cog, :rim, :tire
+-  def initialize(chainring, cog, rim, tire)
++  attr_reader :chainring, :cog, :wheel
++  def initialize(chainring, cog, wheel)
+     @chainring = chainring
+     @cog = cog
+-    @rim = rim
+-    @tire = tire
++    @wheel = wheel
+   end
+ 
+   def gear_inches
+-    ratio * Wheel.new(rim, tire).diameter
++    ratio * wheel.diameter
+   end
+ 
+   def ratio
+@@ -32,4 +31,4 @@ class Wheel
+   end
+ end
+ 
+-p Gear.new(52, 11, 26, 1.5).gear_inches # 137.0909090909091
++p Gear.new(52, 11, Wheel.new(26, 1.5)).gear_inches # 137.0909090909091
+```
+
+この改善によって、`Gear`は`Wheel`に依存しなくなった。  
+初期化の際に渡されたオブジェクトを`@wheel`変数に保存しているが、このオブジェクトは`Wheel`のインスタンスである必要はない。`diameter`に応答できるオブジェクトであるなら、なんでもよい。  
+この変更で、`Wheel`インスタンス以外のオブジェクトとも共同作業できるようになり、`Gear`の再利用性が高まった。
+
+このテクニックを**依存オブジェクトの注入**と呼ぶ。  
+依存を外に切り出して、引数で渡して注入する形に変える。  
+そうすることで、注入される側のクラス（今回の例だと`Gear`）は、注入するオブジェクト（今回の例だと`Wheel`）についての知識を持たずに済み、疎結合なクラスになる。
+
+### 依存を隔離する
+
+不必要な依存を全て取り除ければ完璧だが、現実的には難しいことも多い。  
+そのようなときでも、出来ることはある。  
+不必要な依存をクラスの中で隔離するだけでも、状況は改善する。
+
+例えば、インスタンス変数の作成を分離してしまう。  
+`Gear`の例で言えば、`Wheel`を注入する形に変更することが出来ないのなら、`Wheel`インスタンスの作成を分離し、隔離する。
+
+```ruby
+# 3_2_2.rb
+class Gear
+  attr_reader :chainring, :cog, :rim, :tire
+  def initialize(chainring, cog, rim, tire)
+    @chainring = chainring
+    @cog = cog
+    @rim = rim
+    @tire = tire
+  end
+
+  def gear_inches
+    ratio * wheel.diameter
+  end
+
+  def wheel
+    @wheel ||= Wheel.new(rim, tire)
+  end
+
+  def ratio
+    chainring / cog.to_f
+  end
+end
+```
+
+これで`gear_inches`は`Wheel`に依存しなくなり、使いやすくなった。  
+`Gear`が`Wheel`に依存していることも自明になる。  
+こういうコードはリファクタリングがしやすく、変化に対応しやすい。
+
+この変更で、外部のクラスへの参照を`wheel`に隔離したが、外部のメッセージへの参照も隔離したほうがいい。
+
+「外部のメッセージ」とは`self`以外に送られるメッセージのこと。  
+以下の`gear_inches`は`ratio`と`wheel`を`self`に送るが、`diameter`は`wheel`に送るので、外部メッセージである。
+
+```ruby
+def gear_inches
+  ratio * wheel.diameter
+end
+```
+
+このようなコードは変更に弱いため、外部への依存を専用のメソッドに隔離するとよい。
+
+```ruby
+def gear_inches
+  ratio * diameter
+end
+
+def diameter
+  wheel.diameter
+end
+```
+
+こうすると、`gear_inches`は`self`に送るメッセージにのみ依存するようになる。  
+このようなメソッドの切り出しは、コードの重複を防ぐために行われることが多い。  
+だが今回は、外部への依存を`gear_inches`から取り除くために行った。  
+この改善によって、例えば`diameter`の名前が変わったとしても、そのことによる`Gear`への影響は`diameter`メソッドのみに限定されるようになった。
+
+### 引数の順番への依存を取り除く
+
+メッセージに引数を渡す必要がある際、その順番に依存するのは望ましくない。  
+それでは変更に弱くなってしまう。順番が変わると、メッセージの送り手すべてに変更を加えないといけないから。
+
+引数にハッシュを使うことで、順番への依存を回避できる。  
+引数にデフォルト値を設定することも有効。  
+引数の受け取り方を変えることが出来ない場合は、そのメッセージへの依存を隔離してしまう。そのメッセージを利用するためのメソッドを1つ作り、そのメソッドが使い勝手のよいインタフェースを提供する。そうすることで、望ましくないインタフェースを持ったメッセージへの依存がアプリケーション全体に広がることを防げる。
