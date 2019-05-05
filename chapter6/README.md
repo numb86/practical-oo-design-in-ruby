@@ -110,3 +110,213 @@ p bike.rear_shock # "Fox"
 そのため、サブクラスはスーパークラスのパブリックインターフェースを全て持っていると言える。サブクラスはスーパークラスを特化したものである、とも解釈できる。
 
 マウンテンバイクは`Bicycle`を特化したものであると考えられる。そのため、クラスによる継承を使って`Bicycle`の抱える問題を解決することが出来るのである。
+
+## 6.3 継承を不適切に適用する
+
+既存の実装を拡張して継承を実装する場合は、スーパークラスにしようとしているクラスが本当にスーパークラスとして適しているか、よく考える。  
+例えば`6_2_1.rb`の`Bicycle`は、一般的な自転車の振る舞いの他にロードバイク固有の振る舞いも持っているため、スーパークラスとして適していない。`Bicycle`を継承した`MountainBike`を作ると、継承すべきでないものまで継承してしまう。
+
+```ruby
+# 6_3_1.rb
+class Bicycle
+  attr_reader :size, :tape_color
+
+  def initialize(args)
+    @size = args[:size]
+    @tape_color = args[:tape_color]
+  end
+
+  def spares
+    {
+      chain: '10-speed',
+      tire_size: '23',
+      tape_color: tape_color
+    }
+  end
+end
+
+class MountainBike < Bicycle
+  attr_reader :front_shock, :rear_shock
+
+  def initialize(args)
+    @front_shock = args[:front_shock]
+    @rear_shock = args[:rear_shock]
+    super(args)
+  end
+
+  def spares
+    super.merge(rear_shock: rear_shock)
+  end
+end
+
+mountain_bike = MountainBike.new(size: 'S', front_shock: 'Manitou', rear_shock: 'Fox')
+
+# "S"
+p mountain_bike.size
+
+# tire_size は間違っているし、tape_color は持っていてはいけない
+# {:chain=>"10-speed", :tire_size=>"23", :tape_color=>nil, :rear_shock=>"Fox"}
+p mountain_bike.spares
+```
+
+## 6.4 抽象を見つける
+
+`6_3_1.rb`の`Bicycle`は、一般的な自転車のコードとロードバイク固有のコードの、両方を含んでいる。  
+このアプリケーションにおける自転車が全てロードバイクであったなら、それで問題なかった。  
+だが今やこのアプリケーションには、ロードバイクとマウンテンバイクの両方が存在する。
+
+ロードバイク固有のコードは`Bicycle`から取り出して、`RoadBike`というサブクラスに入れることにする。
+
+新しい`Bicycle`クラスは抽象クラスであり、抽象クラスは、サブクラスを作るためだけに存在する。  
+全ての自転車に共通の性質を持つだけであり、具体的な自転車のことは表現しない。だから、抽象クラスのインスタンスが作られることはない。
+
+継承関係を作るときは、抽象を取り出してそれをスーパークラスに持たせる。具象はサブクラスに持たせる。  
+そのため、いかにして正しい抽象を見つけるかが問題であり、そのための情報は多いほうがいい。  
+継承関係を作るのを遅らせて、十分な情報が揃うのを待ったほうがいいかもしれない。  
+遅らせれば遅らせるほど重複するコードを許容することになるので、これはトレードオフである。  
+今回は、継承関係を作るべきだと判断したと仮定して、先に進む。
+
+最初の一歩として、`Bicycle`を`RoadBike`にリネームし、新しく空の`Bicycle`クラスを作る。  
+これで、空のスーパークラスを継承した2つのサブクラス（`RoadBike`と`MountainBike`）が存在する状態になった。
+
+```ruby
+# 6_4_1.rb
+class Bicycle
+  def initialize(args={})
+  end
+end
+
+class RoadBike < Bicycle
+  attr_reader :size, :tape_color
+
+  def initialize(args)
+    @size = args[:size]
+    @tape_color = args[:tape_color]
+  end
+
+  def spares
+    {
+      chain: '10-speed',
+      tire_size: '23',
+      tape_color: tape_color
+    }
+  end
+end
+
+class MountainBike < Bicycle
+  attr_reader :front_shock, :rear_shock
+
+  def initialize(args)
+    @front_shock = args[:front_shock]
+    @rear_shock = args[:rear_shock]
+    super(args)
+  end
+
+  def spares
+    super.merge(rear_shock: rear_shock)
+  end
+end
+
+road_bike = RoadBike.new(size: 'M', tape_color: 'red')
+# "M"
+p road_bike.size
+
+mountain_bike = MountainBike.new(size: 'S', front_shock: 'Manitou', rear_shock: 'Fox')
+# undefined method `size' for #<MountainBike:0x00007f7efe8a0ca8> (NoMethodError)
+p mountain_bike.size
+```
+
+ここから始めて、抽象的な振る舞いだけをスーパークラスである`Bicycle`に移動させるのが、最終的な目標。
+
+`Bicycle`のようにまずスーパークラスを空にして、抽象を探し出して移していくのが望ましい。  
+なぜなら、抽象を見逃してサブクラスに残ったままになってしまっても、そのような失敗は発見が容易で、修正も簡単に出来ることが多い。  
+全ての振る舞いをスーパークラスに持たせておき、そこから具象を探し出してサブクラスに移そうとすると、具象をスーパークラスに残してしまうという事態が発生する恐れがある。そしてそのような失敗は、影響が広範囲に及び、深刻なものになりやすい。  
+だから、「抽象を探してスーパークラスに移す」というアプローチを取るべき。
+
+以下のコードでは、`size`,`chain`,`tire_size`をスーパークラスに移した。  
+`chain`と`tire_size`については、全ての自転車が共通の`chain`の初期値を持ち、サブクラスが各自で`tire_size`の初期値を持つ、という要件のため、**テンプレートメソッドパターン**を採用した。  
+テンプレートメソッドパターンとは、固有の処理をサブクラスに持たせ、スーパークラスでそれを利用した処理の流れを定義するパターンのこと。
+
+```ruby
+# 6_4_2.rb
+class Bicycle
+  attr_reader :size, :chain, :tire_size
+
+  def initialize(args={})
+    @size = args[:size]
+    @chain = args[:chain] || default_chain
+    @tire_size = args[:tire_size] || default_tire_size
+  end
+
+  def default_chain
+    '10-speed'
+  end
+
+  def default_tire_size
+    raise NotImplementedError
+  end
+end
+
+class RoadBike < Bicycle
+  attr_reader :tape_color
+
+  def initialize(args)
+    @tape_color = args[:tape_color]
+    super(args)
+  end
+
+  def default_tire_size
+    '23'
+  end
+
+  def spares
+    {
+      chain: '10-speed',
+      tire_size: '23',
+      tape_color: tape_color
+    }
+  end
+end
+
+class MountainBike < Bicycle
+  attr_reader :front_shock, :rear_shock
+
+  def initialize(args)
+    @front_shock = args[:front_shock]
+    @rear_shock = args[:rear_shock]
+    super(args)
+  end
+
+  def default_tire_size
+    '2.1'
+  end
+
+  def spares
+    super.merge(rear_shock: rear_shock)
+  end
+end
+
+road_bike = RoadBike.new(size: 'M', tape_color: 'red')
+p road_bike.size # "M"
+p road_bike.chain # "10-speed"
+
+mountain_bike = MountainBike.new(size: 'S', front_shock: 'Manitou', rear_shock: 'Fox')
+p mountain_bike.size # "S"
+p mountain_bike.chain # "10-speed"
+```
+
+`default_tire_size`はサブクラスで定義する仕様になっているが、スーパークラスでも定義しておき、それが呼ばれた場合は例外を投げるようにした。  
+このようにしておくことで、仕様を理解していない開発者が`default_tire_size`のないサブクラスを作ってしまった際に、適切なエラーメッセージが表示される。
+
+```ruby
+class RecumbentBike < Bicycle
+  def default_chain
+    '9-speed'
+  end
+end
+
+# `default_tire_size': NotImplementedError (NotImplementedError)
+bent = RecumbentBike.new
+```
+
+また、このような実装は仕様のドキュメントの役割も果たす。
