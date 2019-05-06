@@ -320,3 +320,180 @@ bent = RecumbentBike.new
 ```
 
 また、このような実装は仕様のドキュメントの役割も果たす。
+
+## 6.5 スーパークラスとサブクラス間の結合度を管理する
+
+あとは`spares`を`Bicycle`に移動させれば、`Bicycle`への抽象の移動は全て完了となる。  
+[`6_5_1.rb`](./6_5_1.rb)と[`6_5_2.rb`](./6_5_1.rb)はどちらも`spares`を`Bicycle`を移動させており、どちらも同じように動く。  
+だが前者はオブジェクト間の結合が強く、後者は弱い。当然、結合は弱いほうが望ましい。
+
+まず`6_5_1.rb`を見てみる。
+
+```ruby
+# 6_5_1.rb
+class Bicycle
+  attr_reader :size, :chain, :tire_size
+
+  def initialize(args={})
+    @size = args[:size]
+    @chain = args[:chain] || default_chain
+    @tire_size = args[:tire_size] || default_tire_size
+  end
+
+  def spares
+    {chain: chain, tire_size: tire_size}
+  end
+
+  def default_chain
+    '10-speed'
+  end
+
+  def default_tire_size
+    raise NotImplementedError
+  end
+end
+
+class RoadBike < Bicycle
+  attr_reader :tape_color
+
+  def initialize(args)
+    @tape_color = args[:tape_color]
+    super(args)
+  end
+
+  def spares
+    super.merge(tape_color: tape_color)
+  end
+
+  def default_tire_size
+    '23'
+  end
+end
+
+class MountainBike < Bicycle
+  attr_reader :front_shock, :rear_shock
+
+  def initialize(args)
+    @front_shock = args[:front_shock]
+    @rear_shock = args[:rear_shock]
+    super(args)
+  end
+
+  def spares
+    super.merge(rear_shock: rear_shock)
+  end
+
+  def default_tire_size
+    '2.1'
+  end
+end
+
+road_bike = RoadBike.new(size: 'M', tape_color: 'red')
+p road_bike.size # "M"
+p road_bike.spares # {:chain=>"10-speed", :tire_size=>"23", :tape_color=>"red"}
+
+mountain_bike = MountainBike.new(size: 'S', front_shock: 'Manitou', rear_shock: 'Fox')
+p mountain_bike.size # "S"
+p mountain_bike.spares # {:chain=>"10-speed", :tire_size=>"2.1", :rear_shock=>"Fox"}
+```
+
+この構造では、それぞれのサブクラスが`initialize`と`spares`で明示的に`super`を送っている。  
+これは、サブクラスがロジックを持ってしまっていることを意味する。スーパークラスの`initialize`や`spares`がどのように動作して何を返すのかを知っており、その知識に依存している。  
+もしロジックに変更があった場合、サブクラスにその影響が及ぶ可能性が高い。  
+例えば、全てのサブクラスが`super`を送っているので、スーパークラスの`initialize`や`spares`の挙動が変われば、その影響は全てのサブクラスに及ぶ。スーパークラスとサブクラスが分かちがたく結びついており、ひとつのオブジェクトのようになってしまっている。
+
+ロジックをスーパークラスに持たせて結合を弱めたのが、`6_5_2.rb`。  
+サブクラスに`initialize`や`spares`を定義するの止めている。  
+そのため、サブクラスのインスタンスにそれらのメッセージを送ったときは、スーパークラスのメソッドが応答する。  
+そしてそのスーパークラスのメソッドが、必要に応じてサブクラスにメッセージ（`post_initialize`や`local_spares`）を送ることで、サブクラス固有の情報を取得するようになっている。
+
+```ruby
+# 6_5_2.rb
+class Bicycle
+  attr_reader :size, :chain, :tire_size
+
+  def initialize(args={})
+    @size = args[:size]
+    @chain = args[:chain] || default_chain
+    @tire_size = args[:tire_size] || default_tire_size
+    post_initialize(args)
+  end
+
+  def spares
+    {chain: chain, tire_size: tire_size}.merge(local_spares)
+  end
+
+  def default_tire_size
+    raise NotImplementedError
+  end
+
+  # subclasses may override
+
+  def post_initialize(args)
+    nil
+  end
+
+  def local_spares
+    {}
+  end
+
+  def default_chain
+    '10-speed'
+  end
+end
+
+class RoadBike < Bicycle
+  attr_reader :tape_color
+
+  def post_initialize(args)
+    @tape_color = args[:tape_color]
+  end
+
+  def local_spares
+    {tape_color: tape_color}
+  end
+
+  def default_tire_size
+    '23'
+  end
+end
+
+class MountainBike < Bicycle
+  attr_reader :front_shock, :rear_shock
+
+  def post_initialize(args)
+    @front_shock = args[:front_shock]
+    @rear_shock = args[:rear_shock]
+  end
+
+  def local_spares
+    {rear_shock: rear_shock}
+  end
+
+  def default_tire_size
+    '2.1'
+  end
+end
+
+road_bike = RoadBike.new(size: 'M', tape_color: 'red')
+p road_bike.size # "M"
+p road_bike.spares # {:chain=>"10-speed", :tire_size=>"23", :tape_color=>"red"}
+
+mountain_bike = MountainBike.new(size: 'S', front_shock: 'Manitou', rear_shock: 'Fox')
+p mountain_bike.size # "S"
+p mountain_bike.spares # {:chain=>"10-speed", :tire_size=>"2.1", :rear_shock=>"Fox"}
+```
+
+この構造なら、サブクラスはスーパークラスの詳細について知らずに済む。サブクラスは自身の情報をスーパークラスに渡すだけであり、ロジックには関知しないし、スーパークラスがどのようなメソッドを持っているのかも知らない。スーパークラスからメッセージを送られたときに、それに応答すればよい。  
+いつメッセージを送るのか、どのように使うのかは、スーパークラスだけが知っている。
+
+サブクラスが何をするのかが分かりやすくなり、新しいサブクラスを作るのも簡単になった。
+
+## 6.6 まとめ
+
+継承によって、共通点と相違点の両方を持った複数の型を、上手く扱えるようになる。
+
+具象クラスが3つ以上あると、抽象を特定しやすくなる。状況が許すなら、3つの具象クラスが出来るまでは、継承関係を作るのは待ったほうがよい。
+
+適切に設計された継承は、仕様についての理解が浅い開発者でも、簡単にサブクラスを追加することが出来る。
+この拡張性の高さが、継承の強み。
