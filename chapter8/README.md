@@ -166,3 +166,66 @@ p mountain_bike.parts.class # Parts
 p mountain_bike.spares.size #Array
 p mountain_bike.parts.size # Parts
 ```
+
+## 8.3 Parts を製造する
+
+前節までの設計には、問題がある。  
+それは、`Part`オブジェクトの作り方についての知識と、それぞれの自転車毎にどの部品を必要とするかについての知識が、一箇所にまとまっていないこと。  
+このままではこの知識がアプリケーション全体に漏れ出てしまい、管理が困難になる。
+
+そのため、一箇所にまとめていく。
+
+まず、それぞれの自転車についての情報を、2次元配列として記述する。
+
+```ruby
+road_config = [
+  ['chain', '10-speed'],
+  ['tire_size', '23'],
+  ['tape_color', 'red']
+]
+
+mountain_config = [
+  ['chain', '10-speed'],
+  ['tire_size', '2.1'],
+  ['front_shock', 'Manitou', false],
+  ['rear_shock', 'Fox']
+]
+```
+
+次に、`Parts`オブジェクトを作成するためのオブジェクトである`PartsFactory`を定義する。  
+`PartsFactory`は先程の2次元配列（`config`）を受け取ることで、その中身に基づいて`Parts`を作る。
+
+そして、`Part`オブジェクト作成のための知識は`PartsFactory`が持つことになるので、`Part`クラスとの重複が生まれる。  
+必要なのは`Part`ロールを担うオブジェクトであり、それを`PartsFactory`が作れるようになった以上、`Part`クラスは不要になる。
+
+```ruby
+# 8_3_1.rb
+require 'ostruct'
+module PartsFactory
+  def self.build(config, parts_class = Parts)
+    parts_class.new(
+      config.collect {|part_config| create_part(part_config)}
+    )
+  end
+
+  def self.create_part(part_config)
+    OpenStruct.new(
+      name: part_config[0],
+      description: part_config[1],
+      needs_spare: part_config.fetch(2, true)
+    )
+  end
+end
+
+# #<Parts:0x00007ff91508fac8
+#   @parts=[
+#     #<OpenStruct name="chain", description="10-speed", needs_spare=true> ,
+#     #<OpenStruct name="tire_size", description="2.1", needs_spare=true>,
+#     #<OpenStruct name="front_shock", description="Manitou", needs_spare=false>,
+#     #<OpenStruct name="rear_shock", description="Fox", needs_spare=true>
+#   ]
+# >
+p PartsFactory.build(mountain_config)
+```
+
+`PartsFactory`は`config`の構造についての知識（最初の要素が名前である、など）を持っているが、そのことで、`config`を簡潔に記述できる。ハッシュではなく配列で表現することが出来る。
