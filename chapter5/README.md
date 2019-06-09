@@ -13,6 +13,7 @@
 そのため、変更の影響を受けやすいし、`preparer`が増える度に分岐が増えてしまう。
 
 ```ruby
+# 5_1_1.rb
 class Trip
   attr_reader :bicycles, :customers, :vehicle
 
@@ -78,6 +79,7 @@ Trip.new(['自転車A', '自転車B'], '顧客', 'オートバイ')
 ダックタイプを使って改善したのが、以下のコード。
 
 ```ruby
+# 5_1_2.rb
 class Trip
   attr_reader :bicycles, :customers, :vehicle
 
